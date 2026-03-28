@@ -40,7 +40,7 @@ st.markdown("""
         content: "🚛 Fleet Optimization Dashboard";
         position: absolute;
         top: 15px;
-        left: 20px; 
+        left: 70px; 
         color: white;
         font-size: 22px;
         font-weight: 800;
@@ -50,6 +50,7 @@ st.markdown("""
         pointer-events: none;
     }
     
+    /* Hide native decoration and top-level app toolbars */
     div[data-testid="stDecoration"], div[data-testid="stAppToolbar"], div[data-testid="stElementToolbar"] { 
         display: none !important; 
     }
@@ -172,7 +173,6 @@ if run_button:
 # ==========================================
 # 2. CACHED PHYSICS & BASELINE SOLVER
 # ==========================================
-# HELPER TO RESOLVE ABSOLUTE PATHS DYNAMICALLY
 def get_absolute_path(filename):
     if os.path.isabs(filename):
         return filename
@@ -382,7 +382,7 @@ else:
         route_options = [f"{r} 🔹 Cost: {p_cost[r]:.2f}" for r in p_cost.keys()]
         demand_options = [f"{od} 🔸 Req: {req:.2f}" for od, req in demand_data.items()]
 
-        if "data_loaded" not in st.session_state or st.session_state.get("app_version") != "v56_os_path_fixed":
+        if "data_loaded" not in st.session_state or st.session_state.get("app_version") != "v57_rounding_tolerance":
             st.session_state.baseline_cost = sum(opt_y[r] * p_cost[r] for r in opt_y)
             st.session_state.opt_y = opt_y 
             
@@ -393,15 +393,17 @@ else:
             st.session_state.df_cargo = pd.DataFrame(cargo_rows)
             
             st.session_state.data_loaded = True
-            st.session_state.app_version = "v56_os_path_fixed" 
+            st.session_state.app_version = "v57_rounding_tolerance" 
 
         # The Bulletproof Configuration Button 
         if st.button("⚙️ Configuration Panel"):
             configuration_modal(route_options, demand_options)
 
         # ==========================================
-        # 5. THE ARITHMETIC REFEREE
+        # 5. THE ARITHMETIC REFEREE (With Tolerance)
         # ==========================================
+        TOLERANCE = 0.05 # Allows up to 0.05 deviation to absorb UI rounding artifacts
+        
         manual_y = {}
         for _, row in st.session_state.df_fleet.iterrows():
             if pd.notna(row["Route"]):
@@ -424,9 +426,9 @@ else:
 
         for od, req in demand_data.items():
             loaded = demand_totals[od]
-            if round(loaded, 4) < round(req, 4):
+            if loaded < req - TOLERANCE:
                 errors.append(f"<b>Shortfall:</b> <span style='color:#b3d4ff; font-weight:bold;'>{od}</span> requires {req:.2f} trucks, but only {loaded:.2f} loaded.")
-            elif round(loaded, 4) > round(req, 4):
+            elif loaded > req + TOLERANCE:
                 errors.append(f"<b>Over-serviced:</b> <span style='color:#b3d4ff; font-weight:bold;'>{od}</span> requires {req:.2f} trucks, but {loaded:.2f} loaded.")
 
         leg_loads = {}
@@ -456,28 +458,28 @@ else:
 
         for (r, u, v), cargo_vol in leg_loads.items():
             assigned_trucks = manual_y.get(r, 0.0)
-            if round(cargo_vol, 4) > round(assigned_trucks, 4):
+            if cargo_vol > assigned_trucks + TOLERANCE:
                 errors.append(f"<b>Overloaded Leg:</b> Route <span style='color:#ffc107;'>{r}</span> leg <span style='color:#b3d4ff;'>{u} ➔ {v}</span> has {cargo_vol:.2f} cargo but only {assigned_trucks:.2f} trucks.")
 
         is_baseline_config = True
         for r, tr in st.session_state.opt_y.items():
-            if round(tr, 2) != round(manual_y.get(r, 0.0), 2): is_baseline_config = False
+            if abs(tr - manual_y.get(r, 0.0)) > TOLERANCE: is_baseline_config = False
         for r, tr in manual_y.items():
-            if tr > 0 and round(tr, 2) != round(st.session_state.opt_y.get(r, 0.0), 2): is_baseline_config = False
+            if tr > 0 and abs(tr - st.session_state.opt_y.get(r, 0.0)) > TOLERANCE: is_baseline_config = False
 
         # ==========================================
-        # 6. RENDER FULL SCREEN MAP & ALERTS
+        # 6. RENDER FULL SCREEN MAP & FIXED HTML ALERTS
         # ==========================================
         if len(errors) == 0:
             if is_baseline_config:
-                alert_html = f'''<div style="position: fixed; top: 15px; right: 20px; z-index: 9999; background: rgba(40,167,69,0.95); color: white; padding: 12px 20px; border-radius: 8px; font-weight: bold; font-family: sans-serif; box-shadow: 0 4px 15px rgba(0,0,0,0.4); backdrop-filter: blur(5px);">✅ Feasible | Cost: {total_cost:.2f} <span style="font-size:12px; font-weight:normal; margin-left: 10px;">(Optimal Baseline)</span></div>'''
-            elif round(total_cost, 2) == round(st.session_state.baseline_cost, 2):
-                alert_html = f'''<div style="position: fixed; top: 15px; right: 20px; z-index: 9999; background: rgba(23,162,184,0.95); color: white; padding: 12px 20px; border-radius: 8px; font-weight: bold; font-family: sans-serif; box-shadow: 0 4px 15px rgba(0,0,0,0.4); backdrop-filter: blur(5px);">🌟 Alternate Optimal! | Cost: {total_cost:.2f}</div>'''
+                alert_html = f'''<div style="position: fixed; top: 20px; right: 20px; z-index: 9999; background: rgba(40,167,69,0.95); color: white; padding: 12px 20px; border-radius: 8px; font-weight: bold; font-family: sans-serif; box-shadow: 0 4px 15px rgba(0,0,0,0.4); backdrop-filter: blur(5px);">✅ Feasible | Cost: {total_cost:.2f} <span style="font-size:12px; font-weight:normal; margin-left: 10px;">(Optimal Baseline)</span></div>'''
+            elif abs(total_cost - st.session_state.baseline_cost) < TOLERANCE:
+                alert_html = f'''<div style="position: fixed; top: 20px; right: 20px; z-index: 9999; background: rgba(23,162,184,0.95); color: white; padding: 12px 20px; border-radius: 8px; font-weight: bold; font-family: sans-serif; box-shadow: 0 4px 15px rgba(0,0,0,0.4); backdrop-filter: blur(5px);">🌟 Alternate Optimal! | Cost: {total_cost:.2f}</div>'''
             else:
-                alert_html = f'''<div style="position: fixed; top: 15px; right: 20px; z-index: 9999; background: rgba(40,167,69,0.95); color: white; padding: 12px 20px; border-radius: 8px; font-weight: bold; font-family: sans-serif; box-shadow: 0 4px 15px rgba(0,0,0,0.4); backdrop-filter: blur(5px);">✅ Feasible | Cost: {total_cost:.2f}</div>'''
+                alert_html = f'''<div style="position: fixed; top: 20px; right: 20px; z-index: 9999; background: rgba(40,167,69,0.95); color: white; padding: 12px 20px; border-radius: 8px; font-weight: bold; font-family: sans-serif; box-shadow: 0 4px 15px rgba(0,0,0,0.4); backdrop-filter: blur(5px);">✅ Feasible | Cost: {total_cost:.2f}</div>'''
         else:
             err_lis = "".join([f"<li style='margin-bottom: 6px;'>{err}</li>" for err in errors])
-            alert_html = f'''<div style="position: fixed; top: 15px; right: 20px; z-index: 9999; background: rgba(220,53,69,0.95); color: white; padding: 15px 20px; border-radius: 8px; font-family: sans-serif; box-shadow: 0 4px 20px rgba(0,0,0,0.5); max-width: 400px; max-height: 80vh; overflow-y: auto; backdrop-filter: blur(5px);">
+            alert_html = f'''<div style="position: fixed; top: 20px; right: 20px; z-index: 9999; background: rgba(220,53,69,0.95); color: white; padding: 15px 20px; border-radius: 8px; font-family: sans-serif; box-shadow: 0 4px 20px rgba(0,0,0,0.5); max-width: 400px; max-height: 80vh; overflow-y: auto; backdrop-filter: blur(5px);">
                 <div style="font-weight: bold; font-size: 16px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 8px; margin-bottom: 10px;">❌ Infeasible | Cost: {total_cost:.2f}</div>
                 <ul style="margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.4;">{err_lis}</ul>
             </div>'''
