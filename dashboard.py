@@ -40,7 +40,7 @@ st.markdown("""
         content: "🚛 Fleet Optimization Dashboard";
         position: absolute;
         top: 15px;
-        left: 70px; 
+        left: 20px; 
         color: white;
         font-size: 22px;
         font-weight: 800;
@@ -232,17 +232,23 @@ def generate_baseline(demand_path, target_path, travel_path, k):
                         new_counts[neighbor] += 1
                         stack.append((path + [neighbor], new_counts))
                         
+    # Shorter cycles sort to the top, ensuring smaller r_idx
     routes = sorted(list(unique_routes), key=lambda x: (len(set(x)), len(x), x))
     route_strings = [" ➔ ".join(r) for r in routes]
 
-    p_cost, valid_routes_for_od, flows_on_route_leg = {}, {k: [] for k in demand_data.keys()}, {}
+    clean_p_cost, p_cost_solver = {}, {}
+    valid_routes_for_od, flows_on_route_leg = {k: [] for k in demand_data.keys()}, {}
+    
     for r_idx, path in enumerate(routes):
         r_str = route_strings[r_idx]
         route_legs, total_time = [], 0
         for i in range(len(path) - 1):
             route_legs.append((path[i], path[i+1]))
             total_time += travel_data.get((path[i], path[i+1]), 1000)
-        p_cost[r_str] = total_time
+            
+        clean_p_cost[r_str] = total_time
+        # Decoupled Tie-Breaker: Invisible to the UI, strictly biases the server towards shorter routes
+        p_cost_solver[r_str] = total_time + (r_idx * 0.000001)
 
         for od_str in demand_data.keys():
             org, dst = od_str.split(" ➔ ")
@@ -273,7 +279,8 @@ def generate_baseline(demand_path, target_path, travel_path, k):
     f = {(od, r): solver.NumVar(0.0, solver.infinity(), "") for (od, r) in valid_f_indices}
 
     obj = solver.Objective()
-    for r in route_strings: obj.SetCoefficient(y[r], p_cost[r])
+    # Feed the biased matrix to the solver
+    for r in route_strings: obj.SetCoefficient(y[r], p_cost_solver[r])
     obj.SetMinimization()
 
     for od, dem in demand_data.items():
@@ -294,7 +301,8 @@ def generate_baseline(demand_path, target_path, travel_path, k):
     opt_y = {r: y[r].solution_value() for r in route_strings if y[r].solution_value() > 0.001}
     opt_f = {(od, r): f[(od, r)].solution_value() for (od, r) in valid_f_indices if f[(od, r)].solution_value() > 0.001}
 
-    return demand_data, p_cost, flows_on_route_leg, valid_routes_for_od, opt_y, opt_f, "Success"
+    # Pass the pure clean_p_cost back to the UI so math calculates perfectly
+    return demand_data, clean_p_cost, flows_on_route_leg, valid_routes_for_od, opt_y, opt_f, "Success"
 
 # ==========================================
 # 3. POPUP WINDOW DEFINITION (The Dialog)
@@ -377,12 +385,13 @@ else:
         final_html = m.get_root().render().replace("</body>", f"{scroll_kill}</body>")
         components.html(final_html, height=1000)
     else:
+        # p_cost strictly receives the clean_p_cost from our generator!
         demand_data, p_cost, flows_on_route_leg, valid_routes_for_od, opt_y, opt_f, _ = data_payload
 
         route_options = [f"{r} 🔹 Cost: {p_cost[r]:.2f}" for r in p_cost.keys()]
         demand_options = [f"{od} 🔸 Req: {req:.2f}" for od, req in demand_data.items()]
 
-        if "data_loaded" not in st.session_state or st.session_state.get("app_version") != "v57_rounding_tolerance":
+        if "data_loaded" not in st.session_state or st.session_state.get("app_version") != "v58_decoupled_tiebreaker":
             st.session_state.baseline_cost = sum(opt_y[r] * p_cost[r] for r in opt_y)
             st.session_state.opt_y = opt_y 
             
@@ -393,16 +402,15 @@ else:
             st.session_state.df_cargo = pd.DataFrame(cargo_rows)
             
             st.session_state.data_loaded = True
-            st.session_state.app_version = "v57_rounding_tolerance" 
+            st.session_state.app_version = "v58_decoupled_tiebreaker" 
 
-        # The Bulletproof Configuration Button 
         if st.button("⚙️ Configuration Panel"):
             configuration_modal(route_options, demand_options)
 
         # ==========================================
-        # 5. THE ARITHMETIC REFEREE (With Tolerance)
+        # 5. THE ARITHMETIC REFEREE
         # ==========================================
-        TOLERANCE = 0.05 # Allows up to 0.05 deviation to absorb UI rounding artifacts
+        TOLERANCE = 0.05 
         
         manual_y = {}
         for _, row in st.session_state.df_fleet.iterrows():
