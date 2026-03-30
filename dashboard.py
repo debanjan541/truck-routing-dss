@@ -40,7 +40,7 @@ st.markdown("""
         content: "🚛 Fleet Optimization Dashboard";
         position: absolute;
         top: 15px;
-        left: 70px; 
+        left: 20px; 
         color: white;
         font-size: 22px;
         font-weight: 800;
@@ -50,8 +50,8 @@ st.markdown("""
         pointer-events: none;
     }
     
-    /* Hide native decoration and top-level app toolbars */
-    div[data-testid="stDecoration"], div[data-testid="stAppToolbar"], div[data-testid="stElementToolbar"] { 
+    /* Hide native decoration and top-level app toolbars ONLY (Leaves data_editor toolbars safe!) */
+    div[data-testid="stDecoration"], div[data-testid="stAppToolbar"] { 
         display: none !important; 
     }
     footer { display: none !important; }
@@ -232,7 +232,6 @@ def generate_baseline(demand_path, target_path, travel_path, k):
                         new_counts[neighbor] += 1
                         stack.append((path + [neighbor], new_counts))
                         
-    # Shorter cycles sort to the top, ensuring smaller r_idx
     routes = sorted(list(unique_routes), key=lambda x: (len(set(x)), len(x), x))
     route_strings = [" ➔ ".join(r) for r in routes]
 
@@ -247,7 +246,6 @@ def generate_baseline(demand_path, target_path, travel_path, k):
             total_time += travel_data.get((path[i], path[i+1]), 1000)
             
         clean_p_cost[r_str] = total_time
-        # Decoupled Tie-Breaker: Invisible to the UI, strictly biases the server towards shorter routes
         p_cost_solver[r_str] = total_time + (r_idx * 0.000001)
 
         for od_str in demand_data.keys():
@@ -279,7 +277,6 @@ def generate_baseline(demand_path, target_path, travel_path, k):
     f = {(od, r): solver.NumVar(0.0, solver.infinity(), "") for (od, r) in valid_f_indices}
 
     obj = solver.Objective()
-    # Feed the biased matrix to the solver
     for r in route_strings: obj.SetCoefficient(y[r], p_cost_solver[r])
     obj.SetMinimization()
 
@@ -301,7 +298,6 @@ def generate_baseline(demand_path, target_path, travel_path, k):
     opt_y = {r: y[r].solution_value() for r in route_strings if y[r].solution_value() > 0.001}
     opt_f = {(od, r): f[(od, r)].solution_value() for (od, r) in valid_f_indices if f[(od, r)].solution_value() > 0.001}
 
-    # Pass the pure clean_p_cost back to the UI so math calculates perfectly
     return demand_data, clean_p_cost, flows_on_route_leg, valid_routes_for_od, opt_y, opt_f, "Success"
 
 # ==========================================
@@ -385,13 +381,12 @@ else:
         final_html = m.get_root().render().replace("</body>", f"{scroll_kill}</body>")
         components.html(final_html, height=1000)
     else:
-        # p_cost strictly receives the clean_p_cost from our generator!
         demand_data, p_cost, flows_on_route_leg, valid_routes_for_od, opt_y, opt_f, _ = data_payload
 
         route_options = [f"{r} 🔹 Cost: {p_cost[r]:.2f}" for r in p_cost.keys()]
         demand_options = [f"{od} 🔸 Req: {req:.2f}" for od, req in demand_data.items()]
 
-        if "data_loaded" not in st.session_state or st.session_state.get("app_version") != "v58_decoupled_tiebreaker":
+        if "data_loaded" not in st.session_state or st.session_state.get("app_version") != "v60_restored_toolbar":
             st.session_state.baseline_cost = sum(opt_y[r] * p_cost[r] for r in opt_y)
             st.session_state.opt_y = opt_y 
             
@@ -402,7 +397,7 @@ else:
             st.session_state.df_cargo = pd.DataFrame(cargo_rows)
             
             st.session_state.data_loaded = True
-            st.session_state.app_version = "v58_decoupled_tiebreaker" 
+            st.session_state.app_version = "v60_restored_toolbar" 
 
         if st.button("⚙️ Configuration Panel"):
             configuration_modal(route_options, demand_options)
