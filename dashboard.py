@@ -40,7 +40,7 @@ st.markdown("""
         content: "🚛 Fleet Optimization Dashboard";
         position: absolute;
         top: 15px;
-        left: 20px; 
+        left: 70px; 
         color: white;
         font-size: 22px;
         font-weight: 800;
