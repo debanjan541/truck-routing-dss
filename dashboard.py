@@ -40,7 +40,7 @@ st.markdown("""
         content: "🚛 Fleet Optimization Dashboard";
         position: absolute;
         top: 15px;
-        left: 20px; 
+        left: 70px; 
         color: white;
         font-size: 22px;
         font-weight: 800;
@@ -156,7 +156,7 @@ with st.sidebar:
         coords_file = st.text_input("Coordinates CSV", "5_city_Coordinates.csv")
         max_k = st.number_input("Max Nodes per Cycle (k)", min_value=2, max_value=8, value=2)
 
-    run_button = st.button("🚀 Run GLOP Optimizer", type="primary", use_container_width=True)
+    run_button = st.button("Run LP Optimizer", type="primary", use_container_width=True)
 
 if "solver_run_count" not in st.session_state:
     st.session_state.solver_run_count = 0
@@ -321,7 +321,7 @@ def configuration_modal(route_options, demand_options):
 
     st.markdown("---")
 
-    st.subheader("📦 Cargo Manifest")
+    st.subheader("📦 Cargo Manager")
     edited_cargo = st.data_editor(
         st.session_state.df_cargo,
         num_rows="dynamic",
